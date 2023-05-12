@@ -29,4 +29,4 @@ python bot.py
 ✅ Halal-compliant (no futures)
 ✅ Real-time decision making
 ✅ CSV is editable for stock symbols
-<!-- updated: 2026-05-04-04 -->
+<!-- updated: 2023-05-12-r01 -->
