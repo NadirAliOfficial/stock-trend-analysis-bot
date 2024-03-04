@@ -54,4 +54,3 @@ Results are saved to `ibkr_trading_results.csv`.
 
 MIT
 
-
