@@ -1,0 +1,5 @@
+symbol,error
+AMAT,"Column ds has timezone specified, which is not supported. Remove timezone."
+AMD,"Column ds has timezone specified, which is not supported. Remove timezone."
+AMGN,"Column ds has timezone specified, which is not supported. Remove timezone."
+AMZN,"Column ds has timezone specified, which is not supported. Remove timezone."

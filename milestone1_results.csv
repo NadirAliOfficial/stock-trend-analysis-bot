@@ -1,0 +1,5 @@
+symbol,ema_fast,ema_slow,rsi,score,should_trade
+AMAT,170.7,170.01,68.44,1,False
+AMD,110.1,109.56,55.82,1,False
+AMGN,270.9,271.87,54.72,1,False
+AMZN,213.66,212.23,67.77,1,False
