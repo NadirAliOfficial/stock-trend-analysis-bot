@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""
-Milestone 1 – Trend Filter System (IBKR Data)
-
-Requirements:
-    pip install ib_insync pandas numpy
-
-Usage:
-    python milestone1.py
-"""
-
 import pandas as pd
 import numpy as np
 from ib_insync import IB, Stock, util

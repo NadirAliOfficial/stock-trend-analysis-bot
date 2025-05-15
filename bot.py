@@ -1,76 +1,123 @@
+
 import pandas as pd
 import numpy as np
-import yfinance as yf
-from datetime import datetime, timedelta
-from prophet import Prophet
-from ib_insync import *
-import warnings
+from ib_insync import IB, Stock, util
+import time
 
-warnings.filterwarnings("ignore")
+# Configuration
+CSV_PATH      = 'listStocksAll_SCREENED.csv'
+RESULTS_PATH  = 'milestone1_results.csv'
+IB_HOST       = '127.0.0.1'
+IB_PORT       = 7497
+CLIENT_ID     = 1
+USE_RTH       = True
+SLEEP_SECONDS = 1  # throttle between requests
 
-# Connect to IBKR TWS or IB Gateway
-ib = IB()
-ib.connect('127.0.0.1', 7497, clientId=12)
+# Define timeframes for momentum analysis: (duration, bar size)
+TIMEFRAMES = [
+    ('5 Y', '1 day'),
+    ('1 Y', '1 day'),
+    ('6 M', '1 day'),
+    ('1 M', '1 hour'),
+    ('1 W', '5 mins'),
+    ('1 D', '5 mins'),
+]
 
-df_symbols = pd.read_csv('listStocksAll_SCREENED.csv')
-symbols = df_symbols['stock'].dropna().tolist()
+def load_symbols(csv_path=CSV_PATH):
+    df = pd.read_csv(csv_path)
+    return df['stock'].dropna().tolist()
 
+def fetch_historical_ibkr(ib, contract, duration, bar_size):
+    bars = ib.reqHistoricalData(
+        contract,
+        endDateTime='',
+        durationStr=duration,
+        barSizeSetting=bar_size,
+        whatToShow='TRADES',
+        useRTH=USE_RTH,
+        formatDate=1
+    )
+    if not bars:
+        return None
+    return util.df(bars)
 
-def create_contract(symbol):
-    return Stock(symbol, 'SMART', 'USD')
-
-def analyze_and_trade(symbol):
+def analyze_stock(symbol, ib):
+    result = {'symbol': symbol}
     try:
-        print(f"Processing: {symbol}")
-        df = yf.download(symbol, period='10d', interval='5m')
-        if df.empty:
-            return {'symbol': symbol, 'status': 'No Data'}
+        contract = Stock(symbol, 'SMART', 'USD')
+        ib.qualifyContracts(contract)
 
-        df = df.reset_index()[['Datetime', 'Close']]
-        df.columns = ['ds', 'y']
+        # Primary data for EMA/RSI
+        df_main = fetch_historical_ibkr(ib, contract, '10 D', '5 mins')
+        if df_main is None or df_main.empty:
+            result['status'] = 'No Data'
+            return result
 
-        # ML Forecasting with Prophet
-        m = Prophet()
-        m.fit(df)
-        future = m.make_future_dataframe(periods=12, freq='5min')
-        forecast = m.predict(future)
-        predicted_gain = (forecast.iloc[-1]['yhat'] - df['y'].iloc[-1]) / df['y'].iloc[-1] * 100
-
-        # Trend Filter
-        df['ema_fast'] = df['y'].ewm(span=12).mean()
-        df['ema_slow'] = df['y'].ewm(span=26).mean()
-        delta = df['y'].diff()
-        gain = np.where(delta > 0, delta, 0)
-        loss = np.where(delta < 0, -delta, 0)
-        avg_gain = pd.Series(gain).rolling(window=14).mean()
-        avg_loss = pd.Series(loss).rolling(window=14).mean()
+        close = df_main['close']
+        ema_fast = close.ewm(span=12).mean()
+        ema_slow = close.ewm(span=26).mean()
+        delta = close.diff()
+        gain = delta.clip(lower=0)
+        loss = (-delta).clip(lower=0)
+        avg_gain = gain.rolling(window=14).mean()
+        avg_loss = loss.rolling(window=14).mean()
         rs = avg_gain / avg_loss
-        df['rsi'] = 100 - (100 / (1 + rs))
+        rsi = 100 - (100 / (1 + rs))
 
+        # Multi-timeframe momentum
+        returns = []
+        for dur, bs in TIMEFRAMES:
+            df_tf = fetch_historical_ibkr(ib, contract, dur, bs)
+            if df_tf is None or df_tf.empty:
+                continue
+            first, last = df_tf['close'].iloc[0], df_tf['close'].iloc[-1]
+            returns.append((last - first) / first * 100)
+            time.sleep(SLEEP_SECONDS)
+
+        momentum_hits = sum(1 for r in returns if r > 0)
+        momentum_flag = momentum_hits >= 4  # need ≥4 positive segments
+
+        # Final scoring
         score = 0
-        if df['ema_fast'].iloc[-1] > df['ema_slow'].iloc[-1]: score += 1
-        if df['rsi'].iloc[-1] > 50: score += 1
-        if predicted_gain > 0.1: score += 1
+        if ema_fast.iloc[-1] > ema_slow.iloc[-1]:
+            score += 1
+        if rsi.iloc[-1] > 50:
+            score += 1
+        if momentum_flag:
+            score += 1
 
-        if score >= 2:
-            contract = create_contract(symbol)
-            ib.qualifyContracts(contract)
-            price = df['y'].iloc[-1]
-            limit_price = round(price * 0.999, 2)
-            take_profit = round(limit_price * 1.001, 2)
-            stop_loss = round(limit_price * 0.997, 2)
-            bracket = ib.bracketOrder('BUY', 1, limit_price, take_profit, stop_loss)
-            for o in bracket:
-                o.transmit = True
-                ib.placeOrder(contract, o)
-            return {'symbol': symbol, 'score': score, 'gain': round(predicted_gain, 2), 'order': 'Placed'}
-        else:
-            return {'symbol': symbol, 'score': score, 'gain': round(predicted_gain, 2), 'order': 'Skipped'}
+        result.update({
+            'ema_fast': round(ema_fast.iloc[-1], 2),
+            'ema_slow': round(ema_slow.iloc[-1], 2),
+            'rsi': round(rsi.iloc[-1], 2),
+            'momentum_hits': momentum_hits,
+            'score': score,
+            'should_trade': score >= 2
+        })
+        return result
+
     except Exception as e:
-        return {'symbol': symbol, 'error': str(e)}
+        result['error'] = str(e)
+        return result
 
-# Run analysis
-results = [analyze_and_trade(sym) for sym in symbols]
-df_results = pd.DataFrame(results)
-df_results.to_csv('ibkr_trading_results.csv', index=False)
-print(df_results)
+def main():
+    ib = IB()
+    ib.connect(IB_HOST, IB_PORT, clientId=CLIENT_ID)
+
+    symbols = load_symbols()
+    results = []
+    for sym in symbols:
+        print(f"Processing {sym}")
+        res = analyze_stock(sym, ib)
+        results.append(res)
+        time.sleep(SLEEP_SECONDS)
+
+    ib.disconnect()
+
+    df = pd.DataFrame(results)
+    df.sort_values(by='score', ascending=False, inplace=True)
+    df.to_csv(RESULTS_PATH, index=False)
+    print(df)
+
+if __name__ == '__main__':
+    main()

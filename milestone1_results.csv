@@ -1,5 +1,11 @@
-symbol,ema_fast,ema_slow,rsi,score,should_trade
-AMAT,170.7,170.01,68.44,1,False
-AMD,110.1,109.56,55.82,1,False
-AMGN,270.9,271.87,54.72,1,False
-AMZN,213.66,212.23,67.77,1,False
+symbol,ema_fast,ema_slow,rsi,momentum_hits,score,should_trade
+AMAT,175.05,174.64,80.95,5,3,True
+TSLA,340.64,340.34,84.46,6,3,True
+MSFT,455.17,454.44,71.64,6,3,True
+AAPL,212.04,211.84,52.96,5,3,True
+NVDA,134.56,134.32,78.03,5,3,True
+AMGN,268.53,267.54,70.8,2,2,True
+AMZN,205.02,205.21,52.26,5,2,True
+META,651.72,651.88,62.85,5,2,True
+GOOGL,165.2,165.08,53.59,3,2,True
+AMD,115.64,115.71,69.0,3,1,False
